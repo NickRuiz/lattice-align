@@ -5,6 +5,7 @@ Created on Sep 11, 2014
 '''
 import sys, io
 import fst
+import re, math
 
 def linear_chain_tok(text, syms=None, semiring='tropical', str=" "):
     """linear_chain(text, syms=None) -> linear chain acceptor for the given input text"""
@@ -38,7 +39,6 @@ class Lattice(object):
         EOF
         """
         a = fst.Acceptor()
-        sigma = fst.SymbolTable()
         
         with open(nbest_file, 'r') as f_in:
             for line in f_in:
@@ -52,7 +52,76 @@ class Lattice(object):
         d.minimize()
         
         self.fsa = d
-        self.sigma = sigma
+        
+    def load_delimited(self, str, delim='|', seg_chars='>+'):
+        '''
+        Loads a sentence with segmentation like the example below.
+        TODO: Refactor this function; it's inefficient
+        TODO: Multiple arcs for same segmentation split for a word. See example.
+              For now, it's addressed by determinizing the FSA.
+        Finnish example:
+        Istuntokauden|istunto+kaude>n uudelleenavaaminen|uudelleen+avaaminen .|.
+        '''
+        
+        a = fst.Acceptor()
+        re_seg_delim = re.compile('[%s]' % seg_chars)
+        
+        state_idx = 0
+        prev_states = [0]
+        
+        # split words
+        words = str.strip().split(' ')
+        for word in words:
+            new_states = []
+            # split on forms
+            forms = word.split(delim)
+            tokens = []
+            
+            for form in forms:
+                # split on segments
+                segs = re_seg_delim.split(form)
+#                 print(word, form, segs)               
+                tokens.append((len(segs), segs))
+                
+            # Add topological ordering
+            tokens.sort(reverse=True)
+            max_length = len(tokens[0])
+            
+            for j in range(len(tokens)):
+                toks = tokens[j]
+                for i in range(len(toks[1])):
+                    tok = toks[1][i]
+                    # Add an arc
+                    state_idx += 1
+                    for istate in prev_states:
+                        prev_istate = state_idx - 1
+                        if i == 0:
+                            # Use istate for the first tok in the sequence
+                            prev_istate = istate
+                        
+                        # TODO: INEFFICIENT; REFACTOR.
+                        if i == len(toks[1]) - 1:
+                            if j == 0:
+                                # Record the last state index
+                                a.add_arc(prev_istate, state_idx, tok)
+                            else:
+                                # Connect to the existing state
+                                a.add_arc(prev_istate, new_states[0], tok)
+                                state_idx -= 1
+                        else:
+                            a.add_arc(prev_istate, state_idx, tok)
+                        
+                    if j == 0 and i == len(toks[1])-1:
+                        new_states.append(state_idx)
+            prev_states = new_states
+        
+        # Add inal states
+        for state in new_states:
+            a[state].final = True
+            
+        # Removes duplicate arcs; TODO: don't rely on this.
+#         return a.determinize()
+        self.fsa = a.determinize()
         
     def load_nbest_iter(self, nbest_file):
         """
@@ -118,7 +187,8 @@ class Lattice(object):
                 scaled_weight = float(arc.weight) / weight_sum
                 arc.weight = fst.TropicalWeight(scaled_weight)
                 prob_total += scaled_weight
-        assert(prob_total == 1.0)
+#                 print(scaled_weight, prob_total)
+        assert(abs(1.0 - prob_total) < 0.00001)
                 
         self.fsa = fwd
         
