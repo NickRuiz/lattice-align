@@ -79,7 +79,49 @@ class Lattice(object):
         
         self.fsa = a
         self.sigma = sigma
-                    
+        
+    def add_forward_weights(self, my_fst):
+        for state in my_fst.states:
+            arc_count = sum(map(lambda x: 1, state.arcs))
+            for arc in state.arcs:
+                arc.weight = fst.TropicalWeight(1.0 / arc_count)
+        return my_fst
+    
+    def add_backward_weights(self, my_fst):
+        fst_rev = my_fst.reverse()
+        fst_rev = self.add_forward_weights(fst_rev)
+        bwd = fst_rev.reverse()
+        bwd.remove_epsilon()
+        bwd.arc_sort_input()
+        return bwd
+    
+    def forward_backward_weights(self):
+        fwd = self.add_forward_weights(self.fsa)
+        bwd = self.add_backward_weights(self.fsa)
+        
+        weight_sum = 0.0
+        
+        for fwd_state in fwd.states:
+            bwd_state = bwd[fwd_state.stateid]
+            fwd_arcs = fwd_state.arcs
+            bwd_arcs = bwd_state.arcs
+            for fwd_arc in fwd_state.arcs:
+                bwd_arc = bwd_arcs.next()
+                assert(fwd_arc.ilabel == bwd_arc.ilabel and fwd_arc.olabel == bwd_arc.olabel)
+                joint_weight = float(fwd_arc.weight) * float(bwd_arc.weight)
+                fwd_arc.weight = fst.TropicalWeight(joint_weight)
+                weight_sum += joint_weight
+                
+        prob_total = 0.0
+        for state in fwd.states:
+            for arc in state.arcs:
+                scaled_weight = float(arc.weight) / weight_sum
+                arc.weight = fst.TropicalWeight(scaled_weight)
+                prob_total += scaled_weight
+        assert(prob_total == 1.0)
+                
+        self.fsa = fwd
+        
     
     def prepend_epsilon(self):
         a = fst.Acceptor()
