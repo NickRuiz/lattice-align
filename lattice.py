@@ -44,7 +44,7 @@ class Lattice(object):
             for line in f_in:
                 line = line.strip()
                 
-                b = fst.linear_chain(line.split(), sigma)
+                b = fst.linear_chain(line.split(), self.sigma)
                 a = a.union(b)
                 
         a.remove_epsilon()
