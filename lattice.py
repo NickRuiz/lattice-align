@@ -52,6 +52,7 @@ class Lattice(object):
         d.minimize()
         
         self.fsa = d
+        self.fsa.top_sort()
         
     def load_delimited(self, str, delim='|', seg_chars='>+'):
         '''
@@ -122,6 +123,7 @@ class Lattice(object):
         # Removes duplicate arcs; TODO: don't rely on this.
 #         return a.determinize()
         self.fsa = a.determinize()
+        self.fsa.top_sort()
         
     def load_nbest_iter(self, nbest_file):
         """
@@ -150,6 +152,9 @@ class Lattice(object):
         self.sigma = sigma
         
     def add_forward_weights(self, my_fst):
+        '''
+        Assigns uniform weights to arcs from start to end.
+        '''
         for state in my_fst.states:
             arc_count = sum(map(lambda x: 1, state.arcs))
             for arc in state.arcs:
@@ -157,6 +162,9 @@ class Lattice(object):
         return my_fst
     
     def add_backward_weights(self, my_fst):
+        '''
+        Assigns uniform weights to arcs from end to start.
+        '''
         fst_rev = my_fst.reverse()
         fst_rev = self.add_forward_weights(fst_rev)
         bwd = fst_rev.reverse()
@@ -165,6 +173,9 @@ class Lattice(object):
         return bwd
     
     def forward_backward_weights(self):
+        '''
+        Combines and normalizes the forward and backward assigned weights.
+        ''' 
         fwd = self.add_forward_weights(self.fsa)
         bwd = self.add_backward_weights(self.fsa)
         
