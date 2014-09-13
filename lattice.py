@@ -19,9 +19,9 @@ class Lattice(object):
         Constructor
         '''
         self.fsa = fst.Acceptor()
-        self.syms = fst.SymbolTable()
-        if syms:
-            self.syms = syms
+        self.syms = syms
+        if not self.syms:
+            self.syms = fst.SymbolTable()
         
     def load_nbest(self, nbest_file):
         """
