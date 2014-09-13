@@ -7,14 +7,6 @@ import sys, io
 import fst
 import re, math
 
-def linear_chain_tok(text, syms=None, semiring='tropical', str=" "):
-    """linear_chain(text, syms=None) -> linear chain acceptor for the given input text"""
-    chain = fst.Acceptor(syms, semiring=semiring)
-    for i, c in text.split(str):
-        chain.add_arc(i, i+1, c)
-    chain[i+1].final = True
-    return chain
-
 class Lattice(object):
     '''
     classdocs
@@ -38,7 +30,7 @@ class Lattice(object):
         2 3.5
         EOF
         """
-        a = fst.Acceptor()
+        a = fst.Acceptor(syms=self.sigma)
         
         with open(nbest_file, 'r') as f_in:
             for line in f_in:
@@ -64,7 +56,7 @@ class Lattice(object):
         Istuntokauden|istunto+kaude>n uudelleenavaaminen|uudelleen+avaaminen .|.
         '''
         
-        a = fst.Acceptor()
+        a = fst.Acceptor(syms=self.sigma)
         re_seg_delim = re.compile('[%s]' % seg_chars)
         
         state_idx = 0
@@ -84,7 +76,7 @@ class Lattice(object):
 #                 print(word, form, segs)               
                 tokens.append((len(segs), segs))
                 
-            # Add topological ordering
+            # Add topological orderinga.
             tokens.sort(reverse=True)
             max_length = len(tokens[0])
             
@@ -183,7 +175,7 @@ class Lattice(object):
         
         for fwd_state in fwd.states:
             bwd_state = bwd[fwd_state.stateid]
-            fwd_arcs = fwd_state.arcs
+            #fwd_arcs = fwd_state.arcs
             bwd_arcs = bwd_state.arcs
             for fwd_arc in fwd_state.arcs:
                 bwd_arc = bwd_arcs.next()
