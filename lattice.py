@@ -14,12 +14,14 @@ class Lattice(object):
     
     fsa = fst.Acceptor()
     
-    def __init__(self):
+    def __init__(self, syms=None):
         '''
         Constructor
         '''
         self.fsa = fst.Acceptor()
-        self.sigma = fst.SymbolTable()
+        self.syms = fst.SymbolTable()
+        if syms:
+            self.syms = syms
         
     def load_nbest(self, nbest_file):
         """
@@ -30,13 +32,13 @@ class Lattice(object):
         2 3.5
         EOF
         """
-        a = fst.Acceptor(syms=self.sigma)
+        a = fst.Acceptor(syms=self.syms)
         
         with open(nbest_file, 'r') as f_in:
             for line in f_in:
                 line = line.strip()
                 
-                b = fst.linear_chain(line.split(), self.sigma)
+                b = fst.linear_chain(line.split(), self.syms)
                 a = a.union(b)
                 
         a.remove_epsilon()
@@ -56,7 +58,7 @@ class Lattice(object):
         Istuntokauden|istunto+kaude>n uudelleenavaaminen|uudelleen+avaaminen .|.
         '''
         
-        a = fst.Acceptor(syms=self.sigma)
+        a = fst.Acceptor(syms=self.syms)
         re_seg_delim = re.compile('[%s]' % seg_chars)
         
         state_idx = 0
@@ -141,7 +143,7 @@ class Lattice(object):
                 a.minimize()
         
         self.fsa = a
-        self.sigma = sigma
+        self.syms = sigma
         
     def add_forward_weights(self, my_fst):
         '''
