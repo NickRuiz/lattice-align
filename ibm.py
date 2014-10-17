@@ -1,36 +1,37 @@
 from collections import defaultdict, Counter
 from itertools import chain
 
-def IBM1(src, trg):
+def IBM1(src, trg, iterations):
     # Adds the `#NULL` token to the target sentence.
     # Convert into docstream.
     src = [i.split() for i in  src.split('\n')]
     trg = [list(["#NULL"]+ i.split()) for i in trg.split('\n')]
     src_vocab = Counter(chain(*src))
     trg_vocab = Counter(chain(*trg))
-    
     num_probs = len(src_vocab) * len(trg_vocab)
-    
     default_prob = 1.0 / len(src_vocab)
     t = defaultdict(lambda: default_prob) # probability table.
-    
-    convergent_threshold=1e-2
+    # cooccurrence set, so in the maximisation step we check only word pairs that cooccur
+    cooccur = set()
+    for srcline, trgline in zip(src, trg):
+        for srcword in srcline:
+              for trgword in trgline:
+                    cooccur.add( (srcword,trgword) )
+    convergent_threshold=1e-7
     globally_converged = False
     probabilities = []
     iteration_count = 0
-    
-    while not globally_converged:
+    while not globally_converged and iteration_count < iterations:
+        iteration_count += 1
+        print("Iteration %d of %d" %(iteration_count, iterations))
         count = defaultdict(float) # count(e|f)
         total = defaultdict(float) # total(f)
-        
         for srcline, trgline in zip(src, trg):
             s_total = {} # Sum of probabilities for this sentence pair.
             for srcword in srcline:
                 s_total[srcword] = 0.0
                 for trgword in trgline:
                     s_total[srcword] += t[srcword, trgword]
-        
-    
             for srcword in srcline:
                 for trgword in trgline:
                     # Normalize probabilities.
@@ -38,20 +39,15 @@ def IBM1(src, trg):
                     # Summing the prob of srcword given trgword.
                     count[srcword, trgword] += cnt
                     total[trgword] += cnt
-            
         num_converged = 0
-        for trgword in trg_vocab:
-            for srcword in src_vocab:
-                new_prob = count[srcword, trgword] / total[trgword]
-                delta = abs(t[srcword, trgword] - new_prob)
-                if delta < convergent_threshold:
-                    num_converged += 1
-                t[srcword, trgword] = new_prob
-    
-        iteration_count += 1
-        if num_converged == num_probs:
+        for (srcword, trgword) in cooccur:
+            new_prob = count[srcword, trgword] / total[trgword]
+            delta = abs(t[srcword, trgword] - new_prob)
+            if delta < convergent_threshold:
+                num_converged += 1
+            t[srcword, trgword] = new_prob
+        if num_converged >= len(cooccur):
             globally_converged = True
-
     return t
 
 def IBM2(src, trg, num_iter=1000, smoothing=True):
@@ -177,44 +173,5 @@ def IBM2(src, trg, num_iter=1000, smoothing=True):
 
     return t_ef, align
 
-##############################################################################
-
-src = """dogs are in house .
-cat is in house .
-is house in town ?"""
-
-trg = """koirat on talossa .
-kissa  on talossa .
-onks talo kaupungissa ?
-"""
-
-src = """dogs are in house . 
-dogs are in house . 
-dogs are in house . 
-dogs are in house .
-cat is in house . 
-cat is in house .
-is house in town ? 
-is house in town ? 
-is house in town ? 
-is house in town ?"""
-
-trg = """koirat on talossa . 
-koira t on talo ssa . 
-koirat on talo ssa . 
-koira t on talossa .
-kissa  on talossa . 
-kissa  on talo ssa .
-onks talo kaupungissa ? 
-onks talo kaupunki ssa ? 
-on ko talo kaupungissa ? 
-on ko talo kaupunki ssa ?"""
 
 
-t = IBM1(src, trg)
-for i,j in sorted(t):
-    print i,j, t[i,j]
-
-t, a = IBM2(src, trg, 10000)
-for i,j in sorted(t):
-    print i,j, t[i,j]
