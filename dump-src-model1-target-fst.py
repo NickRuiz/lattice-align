@@ -8,7 +8,8 @@ import fst
 def dumpfsa(t, outfile):
     for state in t.states:
         if t[state.stateid].final:
-            print(state.stateid, file=outfile)
+            print('{}\t{}'.format(state.stateid, t[state.stateid].final).replace('TropicalWeight(', '')[:-1],
+                    file=outfile)
         for arc in state.arcs:
             print('{}\t{}\t{}\t{}\t{}'.format(state.stateid,
                                                  arc.nextstate,
@@ -54,21 +55,23 @@ def segmentation2list(line):
                 linears[i + segment_index * path_count] +=  ' ' + segmentations[segment_index].replace('>', ' ').replace('+', ' ')
     return [x.strip() for x in linears]
 
-def permutations_r(fsa, seen, tokens, index, next_available):
+def permutations_r(fsa, seen, tokens, index, next_available, penalty):
     left = set(tokens) - seen
     if len(left) == 0:
         fsa[index].final = True
+    else:
+        fsa[index].final = penalty * len(left)
     for token in left:
         fsa.add_arc(index, next_available, token)
         old_seen = seen
         seen.add(token)
         old_index = next_available
         next_available += 1
-        next_available = permutations_r(fsa, seen, tokens, old_index, next_available)
+        next_available = permutations_r(fsa, seen, tokens, old_index, next_available, penalty)
         seen.remove(token)
     return next_available
 
-def sent2fsa_permutations(line, symtab):
+def sent2fsa_permutations(line, symtab, maxw):
     tokens = line.strip().split()
     fsa = fst.Acceptor(symtab)
     next_available = 1
@@ -77,7 +80,7 @@ def sent2fsa_permutations(line, symtab):
         seen = set([token])
         old_index = next_available
         next_available += 1
-        next_available = permutations_r(fsa, seen, tokens, old_index, next_available)
+        next_available = permutations_r(fsa, seen, tokens, old_index, next_available, maxw)
     return fsa
 
 def sent2fsa_noalign(line, symtab):
@@ -96,6 +99,55 @@ def sent2fsa(line, symtab):
     fsa[len(tokens)].final = True
     return fsa
 
+def model1fsa(model1):
+    probs = fst.Transducer()
+    for line in model1:
+        fields = line.strip().replace('#NULL', '@_EPSILON_SYMBOL_@').split()
+        if float(fields[2]) != 0:
+            probs.add_arc(0, 0, fields[0], fields[1],-log(float(fields[2])))
+    probs[0].final = True
+    return probs
+
+def model1fsa_withinputepsilons(model1, maxw):
+    probs = fst.Transducer()
+    for line in model1:
+        fields = line.strip().replace('#NULL', '@_EPSILON_SYMBOL_@').split()
+        if float(fields[2]) != 0:
+            probs.add_arc(0, 0, fields[0], fields[1],-log(float(fields[2])))
+        vocab.add(fields[1])
+    for v in vocab:
+        probs.add_arc(0, 0, '@_EPSILON_SYMBOL_@', v, maxw)
+    probs[0].final = True
+    return probs
+
+def model1fsa_withzeroprobs(model1, maxw):
+    probs = fst.Transducer()
+    for line in model1:
+        fields = line.strip().replace('#NULL', '@_EPSILON_SYMBOL_@').split()
+        if float(fields[2]) != 0:
+            probs.add_arc(0, 0, fields[0], fields[1],-log(float(fields[2])))
+        else:
+            probs.add_arc(0, 0, fields[0], fields[1], maxw)
+    probs[0].final = True
+    return probs
+
+def model1fsa_onetomany(model1):
+    probs = fst.Transducer()
+    seenwords = set()
+    currentstate = 0
+    for line in model1:
+        fields = line.strip().replace('#NULL', '@_EPSILON_SYMBOL_@').split()
+        if fields[0] not in seenwords:
+            currentstate += 1
+            probs.add_arc(0, currentstate, fields[0], '@_EPSILON_SYMBOL_@', 0)
+            probs.add_arc(currentstate, 0, '@_EPSILON_SYMBOL_@', '@_EPSILON_SYMBOL_@', 0)
+            seenwords.add(fields[0])
+        if float(fields[2]) != 0:
+            probs.add_arc(currentstate, currentstate, '@_EPSILON_SYMBOL_@', fields[1],-log(float(fields[2])))
+    probs[0].final = True
+    return probs
+
+
 def main():
     ap = argparse.ArgumentParser(description="get 1-best segmentation using alignment data")
     
@@ -112,11 +164,13 @@ def main():
     ap.add_argument("--output", "-o", action="store", required=True,
             metavar="OFILE", help="store output automata in OPFX.*")
     ap.add_argument("--max-weight", "-M", action="store", type=float, 
-            default=100.1, metavar="MAXW", help="use MAXW as zero prob")
+            default=100000, metavar="MAXW", help="use MAXW as zero prob")
     ap.add_argument("--model1-with-input-epsilons", action="store_true",
             help="add <eps>:x for each word x in target vocabulary to model")
     ap.add_argument("--model1-zero-prob-maxw", action="store_true",
             help="store model1 translations with zero prob as MAXW")
+    ap.add_argument("--model1-one-to-many", action="store_true",
+            help="allow one to many words translation with product weight")
     ap.add_argument("--target", action="store", default="noalign",
             metavar="ALIGN", help="Use ALIGN as target automaton structure")
     args = ap.parse_args()
@@ -128,21 +182,15 @@ def main():
     print('Loading probs')
     vocab = set()
     with open(args.model1) as model1:
-        for line in model1:
-            fields = line.strip().replace('#NULL', '@_EPSILON_SYMBOL_@').split()
-            if float(fields[2]) != 0:
-                probs.add_arc(0, 0, fields[0], fields[1],-log(float(fields[2])))
-            elif args.model1_zero_prob_maxw:
-                # XXX: this should be backoff stuff, right?
-                probs.add_arc(0, 0, fields[0], fields[1], args.max_weight)
-            else:
-                # 1 is sink state cause nonfinal
-                probs.add_arc(0, 1, fields[0], fields[1])
-            vocab.add(fields[1])
-        if args.model1_with_input_epsilons:
-            for v in vocab:
-                probs.add_arc(0, 0, '@_EPSILON_SYMBOL_@', v, args.max_weight)
-        probs[0].final = True
+        probs = None
+        if args.model1_one_to_many:
+            probs = model1fsa_onetomany(model1)
+        elif args.model1_with_input_epsilons:
+            probs = model1fsa_withinputepsilons(model1, args.max_weight)
+        elif args.model1_zero_prob_maxw:
+            probs = model1fsa_withzeroprobs(model1, args.max_weight)
+        else:
+            probs = model1fsa(model1)
         with open(args.output + '.model1.att', 'w') as m1fsa:
             dumpfsa(probs, m1fsa)
     output = open(args.output, 'w')
@@ -159,9 +207,12 @@ def main():
                 if args.target == "noalign":
                     sentfsa = sent2fsa_noalign(sent, probs.osyms)
                 elif args.target == "permutations":
-                    sentfsa = sent2fsa_permutations(sent, probs.osyms)
-                else:
+                    sentfsa = sent2fsa_permutations(sent, probs.osyms, args.max_weight)
+                elif args.target == 'align':
                     sentfsa = sent2fsa(sent, probs.osyms)
+                else:
+                    print("invalid --target", args.target)
+                    exit(1)
                 dumpfsa(sentfsa, sentfsafile)
                 dumpfsa(segfsa, segfsafile)
                 # In HFST the fst archive format is -- separated
