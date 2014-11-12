@@ -17,11 +17,13 @@ def IBM1dbm(src, trg, iterations):
     default_prob = 1.0 / len(src_vocab)
     t = dbm.open('tef', 'n')
     # cooccurrence set, so in the maximisation step we check only word pairs that cooccur
-    cooccur = set()
+    cooccur = dbm.open('cooccur', 'n')
     for srcline, trgline in zip(src, trg):
         for srcword in srcline:
-              for trgword in trgline:
-                    cooccur.add( (srcword,trgword) )
+            for trgword in trgline:
+                key = srcword + '\t' + trgword
+                if not key in cooccur:
+                    cooccur[key] = '1'
     convergent_threshold=1e-7
     globally_converged = False
     probabilities = []
@@ -53,8 +55,10 @@ def IBM1dbm(src, trg, iterations):
                     count[key] = str(tmp)
                     total[trgword] += cnt
         num_converged = 0
-        for (srcword, trgword) in cooccur:
-            key = srcword + '\t' + trgword
+        for bkey in cooccur.keys():
+            key = bkey.decode('utf-8')
+            srcword = key.split('\t')[0]
+            trgword = key.split('\t')[1]
             new_prob = float(count[key]) / total[trgword]
             delta = abs(float(t[key]) - new_prob)
             if delta < convergent_threshold:
