@@ -1,6 +1,7 @@
 ## This is to dump src sentences, model1 and trg sentences as automata for
 ## further processing
 
+from __future__ import print_function
 from math import log
 import argparse
 import fst

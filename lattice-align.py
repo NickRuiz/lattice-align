@@ -1,5 +1,6 @@
 ## This is the CLI file
 
+from __future__ import print_function
 import argparse
 from ibm import IBM1
 from ibmdbm import IBM1dbm
