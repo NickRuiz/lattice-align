@@ -1,7 +1,7 @@
 ## This is to dump src sentences, model1 and trg sentences as automata for
 ## further processing
 
-from math import log
+from math import log, ceil
 import argparse
 import fst
 
@@ -71,7 +71,8 @@ def permutations_r(fsa, seen, tokens, index, next_available, penalty):
         seen.remove(token)
     return next_available
 
-def sent2fsa_permutations(line, symtab, maxw):
+
+def ngram2fsa_permutations(line, symtab, maxw):
     tokens = line.strip().split()
     fsa = fst.Acceptor(symtab)
     next_available = 1
@@ -82,6 +83,32 @@ def sent2fsa_permutations(line, symtab, maxw):
         next_available += 1
         next_available = permutations_r(fsa, seen, tokens, old_index, next_available, maxw)
     return fsa
+
+def sent2fsa_permutations(line, symtab, maxw, n):
+    ntokens = len(line.strip().split())
+    if n >= ntokens:
+        return ngram2fsa_permutations(line, symtab, maxw)
+    fsa = fst.Acceptor(symtab)
+    for start in range(n):
+        splits = [x * n + start for x in range(int(ceil(float(ntokens) / n)))]
+        fsa_segments = fst.Acceptor(symtab)
+        fsa_segments[0].final = maxw * ntokens + 1
+        for i in range(len(splits)):
+            if (i == 0 and splits[i] == 0) or (i == len(splits) and splits[i] == ntokens):
+                continue
+            elif i == 0:
+                ngram_permutations = ngram2fsa_permutations(line[:splits[i]], symtab, maxw)
+            elif i == len(splits):
+                ngram_permutations = ngram2fsa_permutations(line[splits[i-1]:], symtab, maxw)
+            else:
+                ngram_permutations = ngram2fsa_permutations(line[splits[i-1]:splits[i]], symtab, maxw)
+            fsa_segments = fsa_segments.concatenate(ngram_permutations)
+        fsa = fsa.union(fsa_segments)
+    return fsa
+
+
+
+
 
 def sent2fsa_noalign(line, symtab):
     tokens = line.strip().split()
@@ -110,6 +137,7 @@ def model1fsa(model1):
 
 def model1fsa_withinputepsilons(model1, maxw):
     probs = fst.Transducer()
+    vocab = set()
     for line in model1:
         fields = line.strip().replace('#NULL', '@_EPSILON_SYMBOL_@').split()
         if float(fields[2]) != 0:
@@ -173,14 +201,16 @@ def main():
             help="allow one to many words translation with product weight")
     ap.add_argument("--target", action="store", default="noalign",
             metavar="ALIGN", help="Use ALIGN as target automaton structure")
+    ap.add_argument("--permutations-limit", action="store", default=5,
+            metavar="PMAX", help="move at most PMAX tokens when considering permutations")
+
     args = ap.parse_args()
 
     src = ''
     trg = ''
 
     probs = fst.Transducer()
-    print('Loading probs')
-    vocab = set()
+    print('Loading probs from', args.model1)
     with open(args.model1) as model1:
         probs = None
         if args.model1_one_to_many:
@@ -194,20 +224,24 @@ def main():
         with open(args.output + '.model1.att', 'w') as m1fsa:
             dumpfsa(probs, m1fsa)
     output = open(args.output, 'w')
-    print('processing data')
+    print('processing data in ', args.segments, 'and', args.sentences)
     linen = 0
     segfsafile = open(args.output + ".segs.att", 'w')
     sentfsafile = open(args.output + ".sents.att", "w")
     with open(args.segments) as segfile:
         with open(args.sentences) as sentfile:
+            linen = 0
             for segs in segfile:
                 sent = next(sentfile)
+                linen += 1
+                if linen % 10:
+                    print(linen, '...')
                 segfsa = segmentation2fsa(segs, probs.isyms)
                 sentfas = None
                 if args.target == "noalign":
                     sentfsa = sent2fsa_noalign(sent, probs.osyms)
                 elif args.target == "permutations":
-                    sentfsa = sent2fsa_permutations(sent, probs.osyms, args.max_weight)
+                    sentfsa = sent2fsa_permutations(sent, probs.osyms, args.max_weight, args.permutations_limit)
                 elif args.target == 'align':
                     sentfsa = sent2fsa(sent, probs.osyms)
                 else:
