@@ -108,8 +108,28 @@ def sent2fsa_permutations(line, symtab, maxw, n):
         fsa = fsa.union(fsa_segments)
     return fsa
 
+import itertools
 
-
+def permutation_lists(line, n):
+    tokens = line.strip().split()
+    ntokens = len(line.strip().split())
+    if n >= ntokens:
+        return list(itertools.permutations(tokens))
+    all_perms = []
+    for start in range(n):
+        splits = [x * n + start for x in range(int(ceil(float(ntokens) / n)))]
+        ngrams = []
+        for i in range(len(splits) + 1 ):
+            if i == 0 and splits[i] == 0:
+                continue
+            elif i == 0:
+                ngram_perms = itertools.permutations(tokens[:splits[i]])
+            elif i == len(splits):
+                ngram_perms = itertools.permutations(tokens[splits[i-1]:])
+            else:
+                ngram_perms = itertools.permutations(tokens[splits[i-1]:splits[i]])
+            ngrams = ngrams + [list(ngram_perms)]
+        all_perms += [ngrams]
 
 
 def sent2fsa_noalign(line, symtab):
@@ -242,7 +262,9 @@ def main():
                 if args.target == "noalign":
                     sentfsa = sent2fsa_noalign(sent, probs.osyms)
                 elif args.target == "permutations":
-                    sentfsa = sent2fsa_permutations(sent, probs.osyms, args.max_weight, int(args.permutations_limit))
+                    permutation_lists(sent, int(args.permutations_limit))
+                    continue
+                    #sentfsa = sent2fsa_permutations(sent, probs.osyms, args.max_weight, int(args.permutations_limit))
                 elif args.target == 'align':
                     sentfsa = sent2fsa(sent, probs.osyms)
                 else:
