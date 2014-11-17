@@ -1,6 +1,7 @@
 ## This is to dump src sentences, model1 and trg sentences as automata for
 ## further processing
 
+from sys import stdout
 from math import log, ceil
 import argparse
 import fst
@@ -55,25 +56,24 @@ def segmentation2list(line):
                 linears[i + segment_index * path_count] +=  ' ' + segmentations[segment_index].replace('>', ' ').replace('+', ' ')
     return [x.strip() for x in linears]
 
-def permutations_r(fsa, seen, tokens, index, next_available, penalty):
+def permutations_r(fsa, seen, tokens, index, next_available, omission_penalty, base_penalty):
     left = set(tokens) - seen
     if len(left) == 0:
-        fsa[index].final = True
+        fsa[index].final = base_penalty
     else:
-        fsa[index].final = penalty * len(left)
+        fsa[index].final = base_penalty + omission_penalty * len(left)
     for token in left:
         fsa.add_arc(index, next_available, token)
         old_seen = seen
         seen.add(token)
         old_index = next_available
         next_available += 1
-        next_available = permutations_r(fsa, seen, tokens, old_index, next_available, penalty)
+        next_available = permutations_r(fsa, seen, tokens, old_index, next_available, omission_penalty, base_penalty)
         seen.remove(token)
     return next_available
 
 
-def ngram2fsa_permutations(line, symtab, maxw):
-    tokens = line.strip().split()
+def ngram2fsa_permutations(tokens, symtab, maxw, unused):
     fsa = fst.Acceptor(symtab)
     next_available = 1
     for token in tokens:
@@ -81,28 +81,30 @@ def ngram2fsa_permutations(line, symtab, maxw):
         seen = set([token])
         old_index = next_available
         next_available += 1
-        next_available = permutations_r(fsa, seen, tokens, old_index, next_available, maxw)
+        next_available = permutations_r(fsa, seen, tokens, old_index, next_available, maxw, unused)
     return fsa
 
 def sent2fsa_permutations(line, symtab, maxw, n):
+    tokens = line.strip().split()
     ntokens = len(line.strip().split())
     if n >= ntokens:
-        return ngram2fsa_permutations(line, symtab, maxw)
+        return ngram2fsa_permutations(tokens, symtab, maxw, 0)
     fsa = fst.Acceptor(symtab)
+    #fsa[0].final = maxw * ntokens + 1
     for start in range(n):
         splits = [x * n + start for x in range(int(ceil(float(ntokens) / n)))]
         fsa_segments = fst.Acceptor(symtab)
-        fsa_segments[0].final = maxw * ntokens + 1
+        fsa_segments[0].final = maxw * (n - start)
         for i in range(len(splits)):
             if (i == 0 and splits[i] == 0) or (i == len(splits) and splits[i] == ntokens):
                 continue
             elif i == 0:
-                ngram_permutations = ngram2fsa_permutations(line[:splits[i]], symtab, maxw)
+                ngram_permutations = ngram2fsa_permutations(tokens[:splits[i]], symtab, maxw, (ntokens - splits[i]) * maxw)
             elif i == len(splits):
-                ngram_permutations = ngram2fsa_permutations(line[splits[i-1]:], symtab, maxw)
+                ngram_permutations = ngram2fsa_permutations(tokens[splits[i-1]:], symtab, maxw, 0)
             else:
-                ngram_permutations = ngram2fsa_permutations(line[splits[i-1]:splits[i]], symtab, maxw)
-            fsa_segments = fsa_segments.concatenate(ngram_permutations)
+                ngram_permutations = ngram2fsa_permutations(tokens[splits[i-1]:splits[i]], symtab, maxw, (ntokens - splits[i]) * maxw)
+            fsa_segments.concatenate(ngram_permutations)
         fsa = fsa.union(fsa_segments)
     return fsa
 
@@ -234,14 +236,13 @@ def main():
             for segs in segfile:
                 sent = next(sentfile)
                 linen += 1
-                if linen % 10:
-                    print(linen, '...')
+                print(linen, '...')
                 segfsa = segmentation2fsa(segs, probs.isyms)
                 sentfas = None
                 if args.target == "noalign":
                     sentfsa = sent2fsa_noalign(sent, probs.osyms)
                 elif args.target == "permutations":
-                    sentfsa = sent2fsa_permutations(sent, probs.osyms, args.max_weight, args.permutations_limit)
+                    sentfsa = sent2fsa_permutations(sent, probs.osyms, args.max_weight, int(args.permutations_limit))
                 elif args.target == 'align':
                     sentfsa = sent2fsa(sent, probs.osyms)
                 else:
