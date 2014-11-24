@@ -47,7 +47,7 @@ def main():
                 realkey = key.decode('utf-8')
                 print("%s\t%f" %(realkey, float(t[key])), file=model1)
         else:
-            t = IBM1(src, trg, args.iterations)
+            t = IBM1(src, trg, args.iterations, args.output_prefix)
             for key in sorted(t.keys()):
                 print("%s\t%s\t%f" %(key[0], key[1], t[key]), file=model1)
 

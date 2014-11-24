@@ -1,7 +1,7 @@
 from collections import defaultdict, Counter
 from itertools import chain
 
-def IBM1(src, trg, iterations):
+def IBM1(src, trg, iterations, iterfile = None):
     # Adds the `#NULL` token to the target sentence.
     # Convert into docstream.
     src = [i.split() for i in  src.split('\n')]
@@ -24,6 +24,11 @@ def IBM1(src, trg, iterations):
     while not globally_converged and iteration_count < iterations:
         iteration_count += 1
         print("Iteration %d of %d" %(iteration_count, iterations))
+        if iterfile is not None:
+            print("saving to:", iterfile + ".model1-last-iteration.tsv")
+            with open(iterfile + ".model1-last-iteration.tsv", 'w') as f:
+                for key in sorted(t.keys()):
+                    print("%s\t%s\t%f" %(key[0], key[1], t[key]), file=f)
         count = defaultdict(float) # count(e|f)
         total = defaultdict(float) # total(f)
         for srcline, trgline in zip(src, trg):
