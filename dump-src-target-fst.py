@@ -20,9 +20,9 @@ def dumpfsa(t, outfile):
                                                  arc.weight).replace('TropicalWeight(', '')[:-1],
                                                  file=outfile)
 
-def segmentation2fsa(line, symtab):
+def segmentation2fsa(line):
     tokens = line.split(' ')
-    fsa = fst.Acceptor(symtab)
+    fsa = fst.Acceptor()
     for token_index in range(len(tokens)):
         segmentations = tokens[token_index].strip().split('|')
         word_start = 1000 * token_index
@@ -74,7 +74,7 @@ def permutations_r(fsa, seen, tokens, index, next_available, omission_penalty, b
     return next_available
 
 
-def ngram2fsa_permutations(tokens, symtab, maxw, unused):
+def ngram2fsa_permutations(tokens,  maxw, unused, symtab):
     fsa = fst.Acceptor(symtab)
     next_available = 1
     for token in tokens:
@@ -85,26 +85,26 @@ def ngram2fsa_permutations(tokens, symtab, maxw, unused):
         next_available = permutations_r(fsa, seen, tokens, old_index, next_available, maxw, unused)
     return fsa
 
-def sent2fsa_permutations(line, symtab, maxw, n):
+def sent2fsa_permutations(line, maxw, n):
     tokens = line.strip().split()
     ntokens = len(line.strip().split())
+    fsa = fst.Acceptor()
     if n >= ntokens:
-        return ngram2fsa_permutations(tokens, symtab, maxw, 0)
-    fsa = fst.Acceptor(symtab)
+        return ngram2fsa_permutations(tokens,  maxw, 0, fsa.isyms)
     #fsa[0].final = maxw * ntokens + 1
     for start in range(n):
         splits = [x * n + start for x in range(int(ceil(float(ntokens) / n)))]
-        fsa_segments = fst.Acceptor(symtab)
+        fsa_segments = fst.Acceptor()
         fsa_segments[0].final = maxw * (n - start)
         for i in range(len(splits)):
             if (i == 0 and splits[i] == 0) or (i == len(splits) and splits[i] == ntokens):
                 continue
             elif i == 0:
-                ngram_permutations = ngram2fsa_permutations(tokens[:splits[i]], symtab, maxw, (ntokens - splits[i]) * maxw)
+                ngram_permutations = ngram2fsa_permutations(tokens[:splits[i]], maxw, (ntokens - splits[i]) * maxw, fsa.isyms)
             elif i == len(splits):
-                ngram_permutations = ngram2fsa_permutations(tokens[splits[i-1]:], symtab, maxw, 0)
+                ngram_permutations = ngram2fsa_permutations(tokens[splits[i-1]:],  maxw, 0, fsa.isyms)
             else:
-                ngram_permutations = ngram2fsa_permutations(tokens[splits[i-1]:splits[i]], symtab, maxw, (ntokens - splits[i]) * maxw)
+                ngram_permutations = ngram2fsa_permutations(tokens[splits[i-1]:splits[i]], maxw, (ntokens - splits[i]) * maxw, fsa.isyms)
             fsa_segments.concatenate(ngram_permutations)
         fsa = fsa.union(fsa_segments)
     return fsa
@@ -133,70 +133,22 @@ def permutation_lists(line, n):
         all_perms += [ngrams]
 
 
-def sent2fsa_noalign(line, symtab):
+def sent2fsa_noalign(line):
     tokens = line.strip().split()
-    fsa = fst.Acceptor(symtab)
+    fsa = fst.Acceptor()
     for token_index in range(len(tokens)):
         fsa.add_arc(0, 0, tokens[token_index])
     fsa[0].final = True
     return fsa
 
-def sent2fsa(line, symtab):
+def sent2fsa(line):
     tokens = line.strip().split()
-    fsa = fst.Acceptor(symtab)
+    fsa = fst.Acceptor()
     for token_index in range(len(tokens)):
         fsa.add_arc(token_index, token_index + 1, tokens[token_index])
     fsa[len(tokens)].final = True
     return fsa
 
-def model1fsa(model1):
-    probs = fst.Transducer()
-    for line in model1:
-        fields = line.strip().replace('#NULL', '@_EPSILON_SYMBOL_@').split()
-        if float(fields[2]) != 0:
-            probs.add_arc(0, 0, fields[0], fields[1],-log(float(fields[2])))
-    probs[0].final = True
-    return probs
-
-def model1fsa_withinputepsilons(model1, maxw):
-    probs = fst.Transducer()
-    vocab = set()
-    for line in model1:
-        fields = line.strip().replace('#NULL', '@_EPSILON_SYMBOL_@').split()
-        if float(fields[2]) != 0:
-            probs.add_arc(0, 0, fields[0], fields[1],-log(float(fields[2])))
-        vocab.add(fields[1])
-    for v in vocab:
-        probs.add_arc(0, 0, '@_EPSILON_SYMBOL_@', v, maxw)
-    probs[0].final = True
-    return probs
-
-def model1fsa_withzeroprobs(model1, maxw):
-    probs = fst.Transducer()
-    for line in model1:
-        fields = line.strip().replace('#NULL', '@_EPSILON_SYMBOL_@').split()
-        if float(fields[2]) != 0:
-            probs.add_arc(0, 0, fields[0], fields[1],-log(float(fields[2])))
-        else:
-            probs.add_arc(0, 0, fields[0], fields[1], maxw)
-    probs[0].final = True
-    return probs
-
-def model1fsa_onetomany(model1):
-    probs = fst.Transducer()
-    seenwords = set()
-    currentstate = 0
-    for line in model1:
-        fields = line.strip().replace('#NULL', '@_EPSILON_SYMBOL_@').split()
-        if fields[0] not in seenwords:
-            currentstate += 1
-            probs.add_arc(0, currentstate, fields[0], '@_EPSILON_SYMBOL_@', 0)
-            probs.add_arc(currentstate, 0, '@_EPSILON_SYMBOL_@', '@_EPSILON_SYMBOL_@', 0)
-            seenwords.add(fields[0])
-        if float(fields[2]) != 0:
-            probs.add_arc(currentstate, currentstate, '@_EPSILON_SYMBOL_@', fields[1],-log(float(fields[2])))
-    probs[0].final = True
-    return probs
 
 
 def main():
@@ -210,18 +162,10 @@ def main():
             metavar="SEGFILE", help="Load segmentations from SEGFILE")
     ap.add_argument("--sentences", action="store", required=True,
             metavar="SENTFILE", help="Load sentences from SENTFILE")
-    ap.add_argument("--model1", "-m", action="store", required=True,
-            metavar="M1", help="Load model 1 TSV from M1")
     ap.add_argument("--output", "-o", action="store", required=True,
             metavar="OFILE", help="store output automata in OPFX.*")
     ap.add_argument("--max-weight", "-M", action="store", type=float, 
             default=100000, metavar="MAXW", help="use MAXW as zero prob")
-    ap.add_argument("--model1-with-input-epsilons", action="store_true",
-            help="add <eps>:x for each word x in target vocabulary to model")
-    ap.add_argument("--model1-zero-prob-maxw", action="store_true",
-            help="store model1 translations with zero prob as MAXW")
-    ap.add_argument("--model1-one-to-many", action="store_true",
-            help="allow one to many words translation with product weight")
     ap.add_argument("--target", action="store", default="noalign",
             metavar="ALIGN", help="Use ALIGN as target automaton structure")
     ap.add_argument("--permutations-limit", action="store", default=5,
@@ -232,21 +176,6 @@ def main():
     src = ''
     trg = ''
 
-    probs = fst.Transducer()
-    print('Loading probs from', args.model1)
-    with open(args.model1) as model1:
-        probs = None
-        if args.model1_one_to_many:
-            probs = model1fsa_onetomany(model1)
-        elif args.model1_with_input_epsilons:
-            probs = model1fsa_withinputepsilons(model1, args.max_weight)
-        elif args.model1_zero_prob_maxw:
-            probs = model1fsa_withzeroprobs(model1, args.max_weight)
-        else:
-            probs = model1fsa(model1)
-        with open(args.output + '.model1.att', 'w') as m1fsa:
-            dumpfsa(probs, m1fsa)
-    output = open(args.output, 'w')
     print('processing data in ', args.segments, 'and', args.sentences)
     linen = 0
     segfsafile = open(args.output + ".segs.att", 'w')
@@ -258,16 +187,15 @@ def main():
                 sent = next(sentfile)
                 linen += 1
                 print(linen, '...')
-                segfsa = segmentation2fsa(segs, probs.isyms)
+                segfsa = segmentation2fsa(segs)
                 sentfas = None
                 if args.target == "noalign":
-                    sentfsa = sent2fsa_noalign(sent, probs.osyms)
+                    sentfsa = sent2fsa_noalign(sent)
                 elif args.target == "permutations":
-                    permutation_lists(sent, int(args.permutations_limit))
-                    continue
-                    #sentfsa = sent2fsa_permutations(sent, probs.osyms, args.max_weight, int(args.permutations_limit))
+                    #permutation_lists(sent, int(args.permutations_limit))
+                    sentfsa = sent2fsa_permutations(sent, args.max_weight, int(args.permutations_limit))
                 elif args.target == 'align':
-                    sentfsa = sent2fsa(sent, probs.osyms)
+                    sentfsa = sent2fsa(sent)
                 else:
                     print("invalid --target", args.target)
                     exit(1)
