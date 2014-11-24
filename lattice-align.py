@@ -42,9 +42,10 @@ def main():
             trg += line
     with open(args.output_prefix + ".model1.tsv", "w") as model1:
         if args.dbm:
-            t = IBM1dbm(src, trg, args.iterations)
+            t = IBM1dbm(src, trg, args.iterations, args.output_prefix)
             for key in t.keys():
-                print("%s\t%f" %(key, float(t[key])), file=model1)
+                realkey = key.decode('utf-8')
+                print("%s\t%f" %(realkey, float(t[key])), file=model1)
         else:
             t = IBM1(src, trg, args.iterations)
             for key in sorted(t.keys()):

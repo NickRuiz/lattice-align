@@ -6,7 +6,7 @@ try:
 except ImportError:
     import anydbm as dbm
 
-def IBM1dbm(src, trg, iterations):
+def IBM1dbm(src, trg, iterations, iterfile = None):
     # Adds the `#NULL` token to the target sentence.
     # Convert into docstream.
     src = [i.split() for i in  src.split('\n')]
@@ -31,6 +31,12 @@ def IBM1dbm(src, trg, iterations):
     while not globally_converged and iteration_count < iterations:
         iteration_count += 1
         print("Iteration %d of %d" %(iteration_count, iterations))
+        if iterfile is not None:
+            print("saving to:", iterfile + ".model1-last-iteration.tsv")
+            with open(iterfile + ".model1-last-iteration.tsv", 'w') as f:
+                for key in t.keys():
+                    realkey = key.decode("utf-8")
+                    print("%s\t%f" %(realkey, float(t[key])), file=f)
         count = dbm.open('count', 'n') # count(e|f)
         total = defaultdict(float) # total(f)
         for srcline, trgline in zip(src, trg):
